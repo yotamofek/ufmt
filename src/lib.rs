@@ -196,14 +196,8 @@
 #![deny(rust_2018_idioms)]
 #![deny(warnings)]
 
-// this lets us use `uwrite!` in the test suite
-#[allow(unused_extern_crates)]
-#[cfg(test)]
-extern crate self as ufmt;
-
 use core::str;
 
-use proc_macro_hack::proc_macro_hack;
 pub use ufmt_write::uWrite;
 
 /// Write formatted data into a buffer
@@ -224,13 +218,11 @@ pub use ufmt_write::uWrite;
 /// Named parameters and "specified" positional parameters (`{0}`) are not supported.
 ///
 /// `{{` and `}}` can be used to escape braces.
-#[proc_macro_hack]
 pub use ufmt_macros::uwrite;
 
 /// Write formatted data into a buffer, with a newline appended
 ///
 /// See [`uwrite!`](macro.uwrite.html) for more details
-#[proc_macro_hack]
 pub use ufmt_macros::uwriteln;
 
 pub use crate::helpers::{DebugList, DebugMap, DebugStruct, DebugTuple};
