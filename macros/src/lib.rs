@@ -4,9 +4,8 @@
 
 extern crate proc_macro;
 
-use core::mem;
 use proc_macro::TokenStream;
-use std::borrow::Cow;
+use std::{borrow::Cow, cmp::Ordering};
 
 use proc_macro2::{Literal, Span};
 use quote::quote;
@@ -188,25 +187,26 @@ fn write(input: TokenStream, newline: bool) -> TokenStream {
 
     let required_args = pieces.iter().filter(|piece| !piece.is_str()).count();
     let supplied_args = input.args.len();
-    if supplied_args < required_args {
-        return parse::Error::new(
-            literal.span(),
-            &format!(
-                "format string requires {} arguments but {} {} supplied",
-                required_args,
-                supplied_args,
-                if supplied_args == 1 { "was" } else { "were" }
-            ),
-        )
-        .to_compile_error()
-        .into();
-    } else if supplied_args > required_args {
-        return parse::Error::new(
-            input.args[required_args].span(),
-            &format!("argument never used"),
-        )
-        .to_compile_error()
-        .into();
+    match supplied_args.cmp(&required_args) {
+        Ordering::Less => {
+            return parse::Error::new(
+                literal.span(),
+                &format!(
+                    "format string requires {} arguments but {} {} supplied",
+                    required_args,
+                    supplied_args,
+                    if supplied_args == 1 { "was" } else { "were" }
+                ),
+            )
+            .to_compile_error()
+            .into();
+        }
+        Ordering::Greater => {
+            return parse::Error::new(input.args[required_args].span(), "argument never used")
+                .to_compile_error()
+                .into();
+        }
+        _ => {}
     }
 
     let mut args = vec![];
@@ -298,10 +298,7 @@ enum Piece<'a> {
 
 impl Piece<'_> {
     fn is_str(&self) -> bool {
-        match self {
-            Piece::Str(_) => true,
-            _ => false,
-        }
+        matches!(self, Piece::Str(_))
     }
 }
 
@@ -310,7 +307,7 @@ fn mk_ident(i: usize) -> Ident {
 }
 
 // `}}` -> `}`
-fn unescape<'l>(mut literal: &'l str, span: Span) -> parse::Result<Cow<'l, str>> {
+fn unescape(mut literal: &str, span: Span) -> parse::Result<Cow<'_, str>> {
     if literal.contains('}') {
         let mut buf = String::new();
 
@@ -322,11 +319,11 @@ fn unescape<'l>(mut literal: &'l str, span: Span) -> parse::Result<Cow<'l, str>>
                 (Some(left), Some(right)) => {
                     const ESCAPED_BRACE: &str = "}";
 
-                    if right.starts_with(ESCAPED_BRACE) {
+                    literal = if let Some(literal) = right.strip_prefix(ESCAPED_BRACE) {
                         buf.push_str(left);
                         buf.push('}');
 
-                        literal = &right[ESCAPED_BRACE.len()..];
+                        literal
                     } else {
                         return Err(parse::Error::new(span, ERR));
                     }
@@ -344,7 +341,7 @@ fn unescape<'l>(mut literal: &'l str, span: Span) -> parse::Result<Cow<'l, str>>
     }
 }
 
-fn parse<'l>(mut literal: &'l str, span: Span) -> parse::Result<Vec<Piece<'l>>> {
+fn parse(mut literal: &str, span: Span) -> parse::Result<Vec<Piece>> {
     let mut pieces = vec![];
 
     let mut buf = String::new();
@@ -376,7 +373,7 @@ fn parse<'l>(mut literal: &'l str, span: Span) -> parse::Result<Vec<Piece<'l>>> 
                 const ESCAPED_BRACE: &str = "{";
 
                 let head = head.unwrap_or("");
-                if tail.starts_with(DEBUG)
+                literal = if tail.starts_with(DEBUG)
                     || tail.starts_with(DEBUG_PRETTY)
                     || tail.starts_with(DISPLAY)
                 {
@@ -387,30 +384,27 @@ fn parse<'l>(mut literal: &'l str, span: Span) -> parse::Result<Vec<Piece<'l>>> 
                     } else {
                         buf.push_str(&unescape(head, span)?);
 
-                        pieces.push(Piece::Str(Cow::Owned(mem::replace(
-                            &mut buf,
-                            String::new(),
-                        ))));
+                        pieces.push(Piece::Str(Cow::Owned(buf.split_off(0))));
                     }
 
-                    if tail.starts_with(DEBUG) {
+                    if let Some(stripped) = tail.strip_prefix(DEBUG) {
                         pieces.push(Piece::Debug { pretty: false });
 
-                        literal = &tail[DEBUG.len()..];
-                    } else if tail.starts_with(DEBUG_PRETTY) {
+                        stripped
+                    } else if let Some(stripped) = tail.strip_prefix(DEBUG_PRETTY) {
                         pieces.push(Piece::Debug { pretty: true });
 
-                        literal = &tail[DEBUG_PRETTY.len()..];
+                        stripped
                     } else {
                         pieces.push(Piece::Display);
 
-                        literal = &tail[DISPLAY.len()..];
+                        &tail[DISPLAY.len()..]
                     }
-                } else if tail.starts_with(ESCAPED_BRACE) {
+                } else if let Some(stripped) = tail.strip_prefix(ESCAPED_BRACE) {
                     buf.push_str(&unescape(head, span)?);
                     buf.push('{');
 
-                    literal = &tail[ESCAPED_BRACE.len()..];
+                    stripped
                 } else {
                     return Err(parse::Error::new(
                         span,
