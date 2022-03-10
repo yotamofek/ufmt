@@ -47,9 +47,10 @@
 //! struct Pair { x: u32, y: u32 }
 //!
 //! let mut s = String::new();
-//! let pair = Pair { x: 1, y: 2 };
-//! uwrite!(s, "{:?}", pair).unwrap();
-//! assert_eq!(s, "Pair { x: 1, y: 2 }");
+//! let pair1 = Pair { x: 1, y: 2 };
+//! let pair2 = Pair { x: 3, y: 4 };
+//! uwrite!(s, "{pair1:?}, {:?}", pair2).unwrap();
+//! assert_eq!(s, "Pair { x: 1, y: 2 }, Pair { x: 3, y: 4 }");
 //! ```
 //!
 //! - implementing `uWrite`

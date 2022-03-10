@@ -8,7 +8,7 @@ use proc_macro::TokenStream;
 use std::{borrow::Cow, cmp::Ordering};
 
 use proc_macro2::{Literal, Span};
-use quote::quote;
+use quote::{quote, ToTokens};
 use syn::{
     parse::{self, Parse, ParseStream},
     parse_macro_input, parse_quote,
@@ -185,7 +185,11 @@ fn write(input: TokenStream, newline: bool) -> TokenStream {
         Ok(pieces) => pieces,
     };
 
-    let required_args = pieces.iter().filter(|piece| !piece.is_str()).count();
+    let required_args = pieces
+        .iter()
+        .filter(|piece| piece.is_positional_arg())
+        .count();
+
     let supplied_args = input.args.len();
     match supplied_args.cmp(&required_args) {
         Ordering::Less => {
@@ -211,36 +215,44 @@ fn write(input: TokenStream, newline: bool) -> TokenStream {
 
     let mut args = vec![];
     let mut pats = vec![];
-    let mut exprs = vec![];
-    let mut i = 0;
-    for piece in pieces {
-        if let Piece::Str(s) = piece {
-            exprs.push(quote!(f.write_str(#s)?;))
-        } else {
-            let pat = mk_ident(i);
-            let arg = &input.args[i];
-            i += 1;
-
-            args.push(quote!(&(#arg)));
-            pats.push(quote!(#pat));
-
-            match piece {
-                Piece::Display => {
-                    exprs.push(quote!(ufmt::uDisplay::fmt(#pat, f)?;));
-                }
-
-                Piece::Debug { pretty } => {
-                    exprs.push(if pretty {
-                        quote!(f.pretty(|f| ufmt::uDebug::fmt(#pat, f))?;)
-                    } else {
-                        quote!(ufmt::uDebug::fmt(#pat, f)?;)
-                    });
-                }
-
-                _ => unreachable!(),
+    let mut pat_idents = (0..).map(mk_ident);
+    let mut arg_exprs = input.args.into_iter();
+    let exprs = pieces
+        .into_iter()
+        .map(|piece| match piece {
+            Piece::Literal(s) => {
+                quote!(f.write_str(#s)?;)
             }
-        }
-    }
+            Piece::Arg {
+                arg_type,
+                implicit_capture,
+            } => {
+                let pat = pat_idents.next().unwrap();
+                let arg = if let Some(arg) = implicit_capture {
+                    Ident::new(arg, Span::call_site()).into_token_stream()
+                } else {
+                    arg_exprs.next().unwrap().into_token_stream()
+                };
+
+                args.push(quote!(&(#arg)));
+                pats.push(quote!(#pat));
+
+                match arg_type {
+                    FormatArgType::Debug { pretty } => {
+                        let expr = quote!(ufmt::uDebug::fmt(#pat, f));
+                        if pretty {
+                            quote!(f.pretty(|f| #expr)?;)
+                        } else {
+                            quote!(#expr?;)
+                        }
+                    }
+                    FormatArgType::Display => {
+                        quote!(ufmt::uDisplay::fmt(#pat, f)?;)
+                    }
+                }
+            }
+        })
+        .collect::<Vec<_>>();
 
     quote!(match (#(#args),*) {
         (#(#pats),*) => {
@@ -267,7 +279,7 @@ impl Parse for Input {
     fn parse(input: ParseStream) -> parse::Result<Self> {
         let formatter = input.parse()?;
         let _comma = input.parse()?;
-        let literal = input.parse()?;
+        let literal: LitStr = input.parse()?;
 
         if input.is_empty() {
             Ok(Input {
@@ -290,15 +302,29 @@ impl Parse for Input {
 }
 
 #[derive(Debug, PartialEq)]
-enum Piece<'a> {
+enum FormatArgType {
     Debug { pretty: bool },
     Display,
-    Str(Cow<'a, str>),
+}
+
+#[derive(Debug, PartialEq)]
+enum Piece<'a> {
+    Arg {
+        arg_type: FormatArgType,
+        implicit_capture: Option<&'a str>,
+    },
+    Literal(Cow<'a, str>),
 }
 
 impl Piece<'_> {
-    fn is_str(&self) -> bool {
-        matches!(self, Piece::Str(_))
+    fn is_positional_arg(&self) -> bool {
+        matches!(
+            self,
+            Piece::Arg {
+                implicit_capture: None,
+                ..
+            }
+        )
     }
 }
 
@@ -308,110 +334,108 @@ fn mk_ident(i: usize) -> Ident {
 
 // `}}` -> `}`
 fn unescape(mut literal: &str, span: Span) -> parse::Result<Cow<'_, str>> {
-    if literal.contains('}') {
-        let mut buf = String::new();
+    const ERR: &str = "format string contains an unmatched right brace";
 
-        while literal.contains('}') {
-            const ERR: &str = "format string contains an unmatched right brace";
-            let mut parts = literal.splitn(2, '}');
-
-            match (parts.next(), parts.next()) {
-                (Some(left), Some(right)) => {
-                    const ESCAPED_BRACE: &str = "}";
-
-                    literal = if let Some(literal) = right.strip_prefix(ESCAPED_BRACE) {
-                        buf.push_str(left);
-                        buf.push('}');
-
-                        literal
-                    } else {
-                        return Err(parse::Error::new(span, ERR));
-                    }
-                }
-
-                _ => unreachable!(),
-            }
-        }
-
-        buf.push_str(literal);
-
-        Ok(buf.into())
-    } else {
-        Ok(Cow::Borrowed(literal))
+    if !literal.contains('}') {
+        return Ok(Cow::Borrowed(literal));
     }
+
+    let mut buf = String::new();
+
+    while let Some((left, right)) = literal.split_once('}') {
+        const ESCAPED_BRACE: &str = "}";
+
+        literal = if let Some(literal) = right.strip_prefix(ESCAPED_BRACE) {
+            buf.push_str(left);
+            buf.push('}');
+
+            literal
+        } else {
+            return Err(parse::Error::new(span, ERR));
+        }
+    }
+
+    buf.push_str(literal);
+
+    Ok(buf.into())
 }
 
 fn parse(mut literal: &str, span: Span) -> parse::Result<Vec<Piece>> {
     let mut pieces = vec![];
 
     let mut buf = String::new();
-    loop {
-        let mut parts = literal.splitn(2, '{');
-        match (parts.next(), parts.next()) {
-            // empty string literal
-            (None, None) => break,
 
-            // end of the string literal
-            (Some(s), None) => {
-                if buf.is_empty() {
-                    if !s.is_empty() {
-                        pieces.push(Piece::Str(unescape(s, span)?));
+    while let Some((head, tail)) = literal.split_once('{') {
+        const DEBUG: &str = ":?}";
+        const DEBUG_PRETTY: &str = ":#?}";
+        const DISPLAY: &str = "}";
+        const ESCAPED_BRACE: &str = "{";
+
+        let (implicit_capture, tail) = tail
+            .find(|c: char| !c.is_alphanumeric())
+            .filter(|tail_idx| *tail_idx > 0 && !tail.starts_with(char::is_numeric))
+            .map_or((None, tail), |tail_idx| {
+                let (ident, tail) = tail.split_at(tail_idx);
+                (Some(ident), tail)
+            });
+
+        let arg_type;
+        (arg_type, literal) = None
+            .or_else(|| {
+                tail.strip_prefix(DEBUG)
+                    .map(|tail| (FormatArgType::Debug { pretty: false }, tail))
+            })
+            .or_else(|| {
+                tail.strip_prefix(DEBUG_PRETTY)
+                    .map(|tail| (FormatArgType::Debug { pretty: true }, tail))
+            })
+            .or_else(|| {
+                tail.strip_prefix(DISPLAY)
+                    .map(|tail| (FormatArgType::Display, tail))
+            })
+            .map(|(arg_type, tail)| (Some(arg_type), tail))
+            .or_else(|| tail.strip_prefix(ESCAPED_BRACE).map(|tail| (None, tail)))
+            .ok_or_else(|| {
+                parse::Error::new(
+                    span,
+                    "invalid format string: expected `{{`, `{}`, `{:?}` or `{:#?}`",
+                )
+            })?;
+
+        match arg_type {
+            Some(arg_type) => {
+                match (buf.is_empty(), head.is_empty()) {
+                    (true, false) => {
+                        pieces.push(Piece::Literal(unescape(head, span)?));
                     }
-                } else {
-                    buf.push_str(&unescape(s, span)?);
-
-                    pieces.push(Piece::Str(Cow::Owned(buf)));
-                }
-
-                break;
-            }
-
-            (head, Some(tail)) => {
-                const DEBUG: &str = ":?}";
-                const DEBUG_PRETTY: &str = ":#?}";
-                const DISPLAY: &str = "}";
-                const ESCAPED_BRACE: &str = "{";
-
-                let head = head.unwrap_or("");
-                literal = if tail.starts_with(DEBUG)
-                    || tail.starts_with(DEBUG_PRETTY)
-                    || tail.starts_with(DISPLAY)
-                {
-                    if buf.is_empty() {
-                        if !head.is_empty() {
-                            pieces.push(Piece::Str(unescape(head, span)?));
-                        }
-                    } else {
+                    (false, _) => {
                         buf.push_str(&unescape(head, span)?);
-
-                        pieces.push(Piece::Str(Cow::Owned(buf.split_off(0))));
+                        pieces.push(Piece::Literal(Cow::Owned(buf.split_off(0))));
                     }
-
-                    if let Some(stripped) = tail.strip_prefix(DEBUG) {
-                        pieces.push(Piece::Debug { pretty: false });
-
-                        stripped
-                    } else if let Some(stripped) = tail.strip_prefix(DEBUG_PRETTY) {
-                        pieces.push(Piece::Debug { pretty: true });
-
-                        stripped
-                    } else {
-                        pieces.push(Piece::Display);
-
-                        &tail[DISPLAY.len()..]
-                    }
-                } else if let Some(stripped) = tail.strip_prefix(ESCAPED_BRACE) {
-                    buf.push_str(&unescape(head, span)?);
-                    buf.push('{');
-
-                    stripped
-                } else {
-                    return Err(parse::Error::new(
-                        span,
-                        "invalid format string: expected `{{`, `{}`, `{:?}` or `{:#?}`",
-                    ));
+                    _ => {}
                 }
+
+                pieces.push(Piece::Arg {
+                    arg_type,
+                    implicit_capture,
+                });
             }
+            // escaped brace
+            None => {
+                buf.push_str(&unescape(head, span)?);
+                buf.push('{');
+            }
+        };
+    }
+
+    // end of the string literal
+    if !literal.is_empty() {
+        if buf.is_empty() {
+            pieces.push(Piece::Literal(unescape(literal, span)?));
+        } else {
+            buf.push_str(&unescape(literal, span)?);
+
+            pieces.push(Piece::Literal(Cow::Owned(buf)));
         }
     }
 
@@ -424,63 +448,118 @@ mod tests {
 
     use proc_macro2::Span;
 
-    use crate::Piece;
+    use super::*;
+
+    fn literal(lit: &str) -> Piece {
+        Piece::Literal(Cow::Borrowed(lit))
+    }
+
+    fn display<'a>() -> Piece<'a> {
+        Piece::Arg {
+            arg_type: FormatArgType::Display,
+            implicit_capture: None,
+        }
+    }
+
+    fn display_capture(ident: &str) -> Piece {
+        Piece::Arg {
+            arg_type: FormatArgType::Display,
+            implicit_capture: Some(ident),
+        }
+    }
+
+    fn debug<'a>() -> Piece<'a> {
+        Piece::Arg {
+            arg_type: FormatArgType::Debug { pretty: false },
+            implicit_capture: None,
+        }
+    }
+
+    fn debug_capture(ident: &str) -> Piece {
+        Piece::Arg {
+            arg_type: FormatArgType::Debug { pretty: false },
+            implicit_capture: Some(ident),
+        }
+    }
+
+    fn debug_pretty<'a>() -> Piece<'a> {
+        Piece::Arg {
+            arg_type: FormatArgType::Debug { pretty: true },
+            implicit_capture: None,
+        }
+    }
+
+    fn debug_pretty_capture(ident: &str) -> Piece {
+        Piece::Arg {
+            arg_type: FormatArgType::Debug { pretty: true },
+            implicit_capture: Some(ident),
+        }
+    }
 
     #[test]
-    fn pieces() {
+    fn test_pieces() -> syn::parse::Result<()> {
         let span = Span::call_site();
 
-        // string interpolation
-        assert_eq!(
-            super::parse("The answer is {}", span).ok(),
-            Some(vec![
-                Piece::Str(Cow::Borrowed("The answer is ")),
-                Piece::Display
-            ]),
-        );
+        assert_eq!(parse("{}", span)?, vec![display()]);
+        assert_eq!(parse("{ident}", span)?, vec![display_capture("ident")]);
 
-        assert_eq!(
-            super::parse("{:?}", span).ok(),
-            Some(vec![Piece::Debug { pretty: false }]),
-        );
+        assert_eq!(parse("{:?}", span)?, vec![debug()]);
+        assert_eq!(parse("{ident:?}", span)?, vec![debug_capture("ident")]);
 
+        assert_eq!(parse("{:#?}", span)?, vec![debug_pretty()]);
         assert_eq!(
-            super::parse("{:#?}", span).ok(),
-            Some(vec![Piece::Debug { pretty: true }]),
+            parse("{ident:#?}", span)?,
+            vec![debug_pretty_capture("ident")]
         );
 
         // escaped braces
         assert_eq!(
-            super::parse("{{}} is not an argument", span).ok(),
-            Some(vec![Piece::Str(Cow::Borrowed("{} is not an argument"))]),
+            parse("This {{}} is not an argument", span)?,
+            vec![literal("This {} is not an argument")],
+        );
+
+        // complex example
+        assert_eq!(
+            parse(
+                "Hello {name}, and welcome to {:?}! Hope you have {emotion:#?}!",
+                span
+            )?,
+            vec![
+                literal("Hello "),
+                display_capture("name"),
+                literal(", and welcome to "),
+                debug(),
+                literal("! Hope you have "),
+                debug_pretty_capture("emotion"),
+                literal("!")
+            ]
         );
 
         // left brace & junk
-        assert!(super::parse("{", span).is_err());
-        assert!(super::parse(" {", span).is_err());
-        assert!(super::parse("{ ", span).is_err());
-        assert!(super::parse("{ {", span).is_err());
-        assert!(super::parse("{:x}", span).is_err());
+        assert!(parse("{", span).is_err());
+        assert!(parse(" {", span).is_err());
+        assert!(parse("{ ", span).is_err());
+        assert!(parse("{ {", span).is_err());
+        assert!(parse("{:x}", span).is_err());
+
+        Ok(())
     }
 
     #[test]
-    fn unescape() {
+    fn test_unescape() {
         let span = Span::call_site();
 
         // no right brace
-        assert_eq!(super::unescape("", span).ok(), Some(Cow::Borrowed("")));
-        assert_eq!(
-            super::unescape("Hello", span).ok(),
-            Some(Cow::Borrowed("Hello"))
-        );
+        assert_eq!(unescape("", span).ok(), Some(Cow::Borrowed("")));
+        assert_eq!(unescape("Hello", span).ok(), Some(Cow::Borrowed("Hello")));
 
         // unmatched right brace
-        assert!(super::unescape(" }", span).is_err());
-        assert!(super::unescape("} ", span).is_err());
-        assert!(super::unescape("}", span).is_err());
+        assert!(unescape(" }", span).is_err());
+        assert!(unescape("} ", span).is_err());
+        assert!(unescape("}", span).is_err());
 
         // escaped right brace
-        assert_eq!(super::unescape("}}", span).ok(), Some(Cow::Borrowed("}")));
-        assert_eq!(super::unescape("}} ", span).ok(), Some(Cow::Borrowed("} ")));
+        assert_eq!(unescape("}}", span).ok(), Some(Cow::Borrowed("}")));
+        assert_eq!(unescape("}} ", span).ok(), Some(Cow::Borrowed("} ")));
     }
 }
