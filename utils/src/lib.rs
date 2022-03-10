@@ -11,22 +11,11 @@
 #![deny(warnings)]
 #![no_std]
 
-use core::{convert::Infallible, str, fmt};
+use core::{convert::Infallible, fmt, str};
 
 pub use heapless::consts;
 use heapless::{ArrayLength, String};
 use ufmt_write::uWrite;
-
-
-macro_rules! assume_unreachable {
-    () => {
-        if cfg!(debug_assertions) {
-            panic!()
-        } else {
-            core::hint::unreachable_unchecked()
-        }
-    };
-}
 
 /// A write adapter that ignores all errors
 pub struct Ignore<W>
@@ -107,9 +96,7 @@ where
         if len > self.buffer.capacity() {
             self.writer.write_str(s)?;
         } else {
-            self.buffer
-                .push_str(s)
-                .unwrap_or_else(|_| unsafe { assume_unreachable!() })
+            unsafe { self.buffer.push_str(s).unwrap_unchecked() }
         }
 
         Ok(())
@@ -125,22 +112,17 @@ where
 
     fn write_str(&mut self, mut s: &str) -> Result<(), W::Error> {
         while let Some(pos) = s.as_bytes().iter().position(|b| *b == b'\n') {
-            let line = s
-                .get(..pos + 1)
-                .unwrap_or_else(|| unsafe { assume_unreachable!() });
+            let line = unsafe { s.get_unchecked(..pos + 1) };
 
             self.push_str(line)?;
             self.flush()?;
 
-            s = s
-                .get(pos + 1..)
-                .unwrap_or_else(|| unsafe { assume_unreachable!() });
+            s = unsafe { s.get_unchecked(pos + 1..) };
         }
 
         self.push_str(s)
     }
 }
-
 
 /// An adapter struct allowing to use `ufmt` on types which implement `core::fmt::Write`
 ///
@@ -156,9 +138,14 @@ where
 /// let mut s = String::new();
 /// uwrite!(WriteAdapter(&mut s), "{:?}", fancy_number);
 /// ```
-pub struct WriteAdapter<W>(pub W) where W: fmt::Write;
+pub struct WriteAdapter<W>(pub W)
+where
+    W: fmt::Write;
 
-impl<W> uWrite for WriteAdapter<W> where W: fmt::Write {
+impl<W> uWrite for WriteAdapter<W>
+where
+    W: fmt::Write,
+{
     type Error = fmt::Error;
 
     fn write_char(&mut self, c: char) -> Result<(), Self::Error> {
