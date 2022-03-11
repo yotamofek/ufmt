@@ -8,6 +8,7 @@ impl<T> uDebug for Box<T>
 where
     T: uDebug,
 {
+    #[inline]
     fn fmt<W>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error>
     where
         W: uWrite + ?Sized,
@@ -20,6 +21,7 @@ impl<T> uDisplay for Box<T>
 where
     T: uDisplay,
 {
+    #[inline]
     fn fmt<W>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error>
     where
         W: uWrite + ?Sized,
@@ -33,6 +35,7 @@ where
     K: uDebug,
     V: uDebug,
 {
+    #[inline]
     fn fmt<W>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error>
     where
         W: uWrite + ?Sized,
@@ -45,6 +48,7 @@ impl<T> uDebug for BTreeSet<T>
 where
     T: uDebug,
 {
+    #[inline]
     fn fmt<W>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error>
     where
         W: uWrite + ?Sized,
@@ -53,11 +57,12 @@ where
     }
 }
 
-impl<K, V> uDebug for HashMap<K, V>
+impl<K, V, S> uDebug for HashMap<K, V, S>
 where
     K: uDebug,
     V: uDebug,
 {
+    #[inline]
     fn fmt<W>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error>
     where
         W: uWrite + ?Sized,
@@ -66,10 +71,11 @@ where
     }
 }
 
-impl<T> uDebug for HashSet<T>
+impl<T, S> uDebug for HashSet<T, S>
 where
     T: uDebug,
 {
+    #[inline]
     fn fmt<W>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error>
     where
         W: uWrite + ?Sized,
@@ -89,6 +95,7 @@ where
 // }
 
 impl uDisplay for String {
+    #[inline]
     fn fmt<W>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error>
     where
         W: uWrite + ?Sized,
@@ -101,6 +108,7 @@ impl<T> uDebug for Vec<T>
 where
     T: uDebug,
 {
+    #[inline]
     fn fmt<W>(&self, f: &mut Formatter<'_, W>) -> Result<(), W::Error>
     where
         W: uWrite + ?Sized,

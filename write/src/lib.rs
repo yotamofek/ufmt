@@ -26,6 +26,7 @@ pub trait uWrite {
     /// A single [`char`] may be encoded as more than one byte. This method can only succeed if the
     /// entire byte sequence was successfully written, and this method will not return until all
     /// data has been written or an error occurs.
+    #[inline]
     fn write_char(&mut self, c: char) -> Result<(), Self::Error> {
         self.write_str(c.encode_utf8(&mut [0; 4]))
     }
@@ -35,8 +36,15 @@ pub trait uWrite {
 impl uWrite for String {
     type Error = Infallible;
 
+    #[inline]
     fn write_str(&mut self, s: &str) -> Result<(), Infallible> {
         self.push_str(s);
+        Ok(())
+    }
+
+    #[inline]
+    fn write_char(&mut self, c: char) -> Result<(), Self::Error> {
+        self.push(c);
         Ok(())
     }
 }

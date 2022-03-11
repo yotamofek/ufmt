@@ -275,6 +275,7 @@ where
     W: uWrite + ?Sized,
 {
     /// Creates a formatter from the given writer
+    #[inline]
     pub fn new(writer: &'w mut W) -> Self {
         Self {
             indentation: 0,
@@ -284,6 +285,7 @@ where
     }
 
     /// Execute the closure with pretty-printing enabled
+    #[inline]
     pub fn pretty(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<(), W::Error>,
@@ -296,11 +298,13 @@ where
     }
 
     /// Writes a character to the underlying buffer contained within this formatter.
+    #[inline]
     pub fn write_char(&mut self, c: char) -> Result<(), W::Error> {
         self.writer.write_char(c)
     }
 
     /// Writes a string slice to the underlying buffer contained within this formatter.
+    #[inline]
     pub fn write_str(&mut self, s: &str) -> Result<(), W::Error> {
         self.writer.write_str(s)
     }
@@ -332,6 +336,7 @@ where
 {
     type Writer = W;
 
+    #[inline]
     fn do_as_formatter(
         &mut self,
         f: impl FnOnce(&mut Formatter<'_, W>) -> Result<(), W::Error>,
@@ -346,6 +351,7 @@ where
 {
     type Writer = W;
 
+    #[inline]
     fn do_as_formatter(
         &mut self,
         f: impl FnOnce(&mut Formatter<'_, W>) -> Result<(), W::Error>,
