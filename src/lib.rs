@@ -229,6 +229,10 @@ pub use ufmt_macros::uwrite;
 /// See [`uwrite!`](macro.uwrite.html) for more details
 pub use ufmt_macros::uwriteln;
 
+#[cfg(feature = "std")]
+/// Write formatted data into a [`String`], like [`format!`].
+pub use ufmt_macros::uformat;
+
 pub use crate::helpers::{DebugList, DebugMap, DebugStruct, DebugTuple};
 
 mod helpers;

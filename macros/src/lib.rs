@@ -166,3 +166,16 @@ pub fn uwrite(input: TokenStream) -> TokenStream {
 pub fn uwriteln(input: TokenStream) -> TokenStream {
     write(input, true)
 }
+
+#[proc_macro]
+pub fn uformat(input: TokenStream) -> TokenStream {
+    let input = proc_macro2::TokenStream::from(input);
+    let input = quote!(s, #input);
+    let write = proc_macro2::TokenStream::from(write(input.into(), false));
+    quote! {{
+        let mut s = String::new();
+        { #write }.unwrap();
+        s
+    }}
+    .into()
+}
