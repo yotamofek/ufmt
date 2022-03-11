@@ -197,9 +197,6 @@
 #![deny(rust_2018_idioms)]
 #![deny(warnings)]
 
-#[cfg(test)]
-extern crate self as ufmt;
-
 use core::str;
 
 pub use ufmt_write::uWrite;
