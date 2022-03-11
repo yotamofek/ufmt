@@ -38,9 +38,6 @@ macro_rules! uxx {
     ($n:expr, $buf:expr) => {{
         let mut n = $n;
 
-        // let Range { end, .. } = $buf.as_mut_ptr_range();
-        // let mut at = end;
-
         write_loop!(n, end, at, $buf);
 
         unsafe {
@@ -87,18 +84,3 @@ impl_uxx!(usize, 5);
 impl_uxx!(usize, 10);
 #[cfg(target_pointer_width = "64")]
 impl_uxx!(usize, 20);
-
-#[cfg(all(test, feature = "std"))]
-mod tests {
-    use core::u8;
-
-    use crate::uwrite;
-
-    #[test]
-    fn test_u8() {
-        let mut s = String::new();
-
-        uwrite!(s, "{}:{}", u8::MIN, u8::MAX).unwrap();
-        assert_eq!(s, "0:255");
-    }
-}

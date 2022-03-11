@@ -68,18 +68,3 @@ impl_ixx!(isize, u16, 6);
 impl_ixx!(isize, u32, 11);
 #[cfg(target_pointer_width = "64")]
 impl_ixx!(isize, u64, 20);
-
-#[cfg(all(test, feature = "std"))]
-mod tests {
-    use core::i8;
-
-    use crate::uwrite;
-
-    #[test]
-    fn test_i8() {
-        let mut s = String::new();
-
-        uwrite!(s, "{}:{}:{}", i8::MIN, 0_i8, i8::MAX).unwrap();
-        assert_eq!(s, "-128:0:127");
-    }
-}
