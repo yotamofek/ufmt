@@ -1,3 +1,5 @@
+mod net;
+
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::{uDebug, uDisplay, uWrite, Formatter};
