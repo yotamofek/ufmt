@@ -6,9 +6,6 @@
 #![deny(rust_2018_idioms)]
 #![deny(warnings)]
 
-#[cfg(feature = "std")]
-use core::convert::Infallible;
-
 /// A collection of methods that are required / used to format a message into a stream.
 #[allow(non_camel_case_types)]
 pub trait uWrite {
@@ -33,18 +30,4 @@ pub trait uWrite {
 }
 
 #[cfg(feature = "std")]
-impl uWrite for String {
-    type Error = Infallible;
-
-    #[inline]
-    fn write_str(&mut self, s: &str) -> Result<(), Infallible> {
-        self.push_str(s);
-        Ok(())
-    }
-
-    #[inline]
-    fn write_char(&mut self, c: char) -> Result<(), Self::Error> {
-        self.push(c);
-        Ok(())
-    }
-}
+mod std;
