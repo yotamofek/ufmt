@@ -6,7 +6,7 @@ use core::str;
 use crate::{uDebug, uDisplay, uWrite, Formatter};
 
 macro_rules! write_loop {
-    ($n:ident, $end:ident, $at:ident, $buf:expr) => {
+    ($n:ident, $end:ident, $at:ident, $buf:ident) => {
         let Range { $end, .. } = $buf.as_mut_ptr_range();
         let mut $at = $end;
 
@@ -35,7 +35,7 @@ pub(super) unsafe fn buf_to_str<'s>(
 }
 
 macro_rules! uxx {
-    ($n:expr, $buf:expr) => {{
+    ($n:expr, $buf:ident) => {{
         let mut n = $n;
 
         write_loop!(n, end, at, $buf);
@@ -56,7 +56,9 @@ macro_rules! impl_uxx {
             where
                 W: uWrite + ?Sized,
             {
-                f.write_str(uxx!(*self, [MaybeUninit::uninit(); $buf_len]))
+                let mut buf = [MaybeUninit::uninit(); $buf_len];
+                f.write_str(uxx!(*self, buf))?;
+                Ok(())
             }
         }
 

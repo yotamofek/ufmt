@@ -6,14 +6,14 @@ use crate::{uDebug, uDisplay, uWrite, Formatter};
 use super::uxx::{buf_to_str, write_loop};
 
 macro_rules! ixx {
-    ($uxx:ident, $n:expr, $buf:expr) => {{
+    ($uxx:ident, $n:expr, $buf:ident) => {{
         let n = $n;
         let negative = n.is_negative();
 
         let mut n = if negative {
             match n.checked_abs() {
                 Some(n) => n as $uxx,
-                None => std::$uxx::MAX / 2 + 1,
+                None => core::$uxx::MAX / 2 + 1,
             }
         } else {
             n as $uxx
@@ -40,7 +40,9 @@ macro_rules! impl_ixx {
             where
                 W: uWrite + ?Sized,
             {
-                f.write_str(ixx!($uty, *self, [MaybeUninit::uninit(); $buf_len]))
+                let mut buf = [MaybeUninit::uninit(); $buf_len];
+                f.write_str(ixx!($uty, *self, buf))?;
+                Ok(())
             }
         }
 

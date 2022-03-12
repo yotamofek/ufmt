@@ -40,7 +40,12 @@
 //!
 //! - `uwrite!` / `uwriteln!`
 //!
-//! ```
+#![cfg_attr(
+    not(feature = "std"),
+    doc = "This example requires the `std` feature to be enabled:"
+)]
+#![cfg_attr(not(feature = "std"), doc = "```ignore")]
+#![cfg_attr(feature = "std", doc = "```")]
 //! use ufmt::{derive::uDebug, uwrite};
 //!
 //! #[derive(uDebug)]
@@ -197,6 +202,7 @@
 #![deny(rust_2018_idioms)]
 #![deny(warnings)]
 
+#[cfg(feature = "std")]
 extern crate self as ufmt;
 
 use core::str;
