@@ -6,7 +6,7 @@ use crate::uWrite;
 impl uWrite for String {
     type Error = TryReserveError;
 
-    #[inline(never)]
+    #[inline]
     fn write_str(&mut self, s: &str) -> Result<(), Self::Error> {
         unsafe {
             let vec = self.as_mut_vec();
