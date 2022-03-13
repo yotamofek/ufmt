@@ -110,17 +110,16 @@ where
 {
     type Error = W::Error;
 
-    fn write_str(&mut self, mut s: &str) -> Result<(), W::Error> {
-        while let Some(pos) = s.as_bytes().iter().position(|b| *b == b'\n') {
-            let line = unsafe { s.get_unchecked(..pos + 1) };
-
+    #[inline]
+    fn write_str(&mut self, s: &str) -> Result<(), W::Error> {
+        for line in s.split_inclusive('\n') {
             self.push_str(line)?;
-            self.flush()?;
-
-            s = unsafe { s.get_unchecked(pos + 1..) };
+            if line.ends_with('\n') {
+                self.flush()?;
+            }
         }
 
-        self.push_str(s)
+        Ok(())
     }
 }
 
